@@ -1,4 +1,4 @@
-opencv-python
+opencv-python<4.10
 face-recognition
-numpy
+numpy<2
 pandas
