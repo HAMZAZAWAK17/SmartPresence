@@ -13,6 +13,19 @@ class FaceRecognitionSystem:
         self.known_face_encodings = []
         self.known_face_names = []
         
+        # Détection dynamique et flexible de l'accélération GPU
+        import dlib
+        self.use_gpu = dlib.DLIB_USE_CUDA
+        self.model_name = "cnn" if self.use_gpu else "hog"
+        
+        print("=========================================================")
+        if self.use_gpu:
+            print("🚀 ACCÉLÉRATION GPU : ACTIVÉE (Modèle CNN Haute Précision)")
+        else:
+            print("💻 ACCÉLÉRATION GPU : INDISPONSIBLE (Utilisation CPU - Modèle HOG)")
+        print(f"   Modèle de détection actif : {self.model_name.upper()}")
+        print("=========================================================\n")
+        
         # S'assurer que le dossier des étudiants existe
         if not os.path.exists(self.students_dir):
             os.makedirs(self.students_dir)
@@ -80,8 +93,8 @@ class FaceRecognitionSystem:
         # Il faut donc convertir l'image.
         rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         
-        # Détecter toutes les zones de visage dans le frame actuel
-        face_locations = face_recognition.face_locations(rgb_small_frame)
+        # Détecter toutes les zones de visage dans le frame actuel en utilisant le modèle flexible (GPU/CPU)
+        face_locations = face_recognition.face_locations(rgb_small_frame, model=self.model_name)
         
         # Calculer les encodages faciaux pour chaque visage détecté
         face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
