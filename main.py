@@ -2,7 +2,7 @@ import cv2
 import time
 from face_recognition_system import FaceRecognitionSystem
 from attendance import AttendanceManager
-from utils import draw_modern_box, get_greeting_message
+from utils import draw_modern_box, get_greeting_message, draw_translucent_rect
 
 def main():
     print("=========================================================")
@@ -39,6 +39,11 @@ def main():
     prev_frame_time = 0
     new_frame_time = 0
 
+    # Variables pour la détection fluide sans retard (Frame Skipping)
+    last_face_locations = []
+    last_face_names = []
+    process_this_frame = True
+
     while True:
         # Lire la trame (frame) actuelle de la webcam
         ret, frame = video_capture.read()
@@ -51,14 +56,17 @@ def main():
 
         # Calculer les FPS (frames par seconde) pour surveiller la performance
         new_frame_time = time.time()
-        fps = 1 / (new_frame_time - prev_frame_time)
+        fps = 1 / (new_frame_time - prev_frame_time) if (new_frame_time - prev_frame_time) > 0 else 30
         prev_frame_time = new_frame_time
 
-        # 3. Exécuter la détection et la reconnaissance
-        face_locations, face_names = face_system.recognize_faces(frame)
+        # 3. Exécuter la détection et la reconnaissance (1 trame sur 2 pour éliminer les retards)
+        if process_this_frame:
+            last_face_locations, last_face_names = face_system.recognize_faces(frame)
+        
+        process_this_frame = not process_this_frame
 
-        # 4. Traitement et Affichage graphique pour chaque visage
-        for (top, right, bottom, left), name in zip(face_locations, face_names):
+        # 4. Traitement et Affichage graphique pour chaque visage (dessiné sur chaque trame pour la fluidité)
+        for (top, right, bottom, left), name in zip(last_face_locations, last_face_names):
             # Comme on a réduit l'image par 4 dans 'recognize_faces',
             # on doit multiplier par 4 les coordonnées pour les dessiner sur l'image d'origine.
             top *= 4
@@ -67,11 +75,10 @@ def main():
             left *= 4
 
             # Choix des couleurs du cadre selon l'identification :
-            # Vert = Étudiant enregistré
-            # Rouge = Visage inconnu
-            color = (46, 204, 113) if name != "Inconnu" else (231, 76, 60) # Couleurs modernes HSL/RGB
+            # Vert menthe = Étudiant enregistré, Rouge corail = Visage inconnu
+            color = (46, 204, 113) if name != "Inconnu" else (231, 76, 60)
 
-            # Dessiner la boîte moderne autour du visage
+            # Dessiner la boîte moderne HUD autour du visage
             draw_modern_box(frame, top, right, bottom, left, name, color)
 
             # Si l'étudiant est identifié, on gère son enregistrement
@@ -84,23 +91,35 @@ def main():
                     # Enregistrer le moment de détection pour afficher le message d'accueil
                     active_greetings[name] = time.time()
 
-        # 5. Affichage des messages d'accueil à l'écran
+        # 5. Affichage des messages d'accueil translucides à l'écran
         current_time = time.time()
-        y_offset = 50 # Position de départ verticale pour afficher les messages
+        y_offset = 60 # Position de départ verticale pour afficher les messages
         
         for name, detection_time in list(active_greetings.items()):
             # Afficher le message d'accueil pendant 4 secondes maximum
             if current_time - detection_time < 4.0:
                 greeting_text = get_greeting_message(name)
                 
-                # Dessiner une bannière de bienvenue translucide (fond vert menthe professionnel)
-                cv2.rectangle(frame, (15, y_offset - 30), (450, y_offset + 10), (46, 204, 113), cv2.FILLED)
+                # Carte d'accueil haute technologie translucide
+                bg_card_color = (25, 28, 36) # Anthracite
+                accent_color = (46, 204, 113) # Vert menthe
                 
-                # Texte noir très lisible par-dessus
-                cv2.putText(frame, greeting_text, (25, y_offset - 5), 
-                            cv2.FONT_HERSHEY_DUPLEX, 0.65, (255, 255, 255), 1, cv2.LINE_AA)
+                # Rectangle translucide pour le fond de la carte
+                draw_translucent_rect(frame, (20, y_offset - 35), (460, y_offset + 18), bg_card_color, alpha=0.85)
+                # Bordure fine colorée
+                cv2.rectangle(frame, (20, y_offset - 35), (460, y_offset + 18), accent_color, 1, cv2.LINE_AA)
+                # Ligne verticale d'accentuation à gauche
+                cv2.rectangle(frame, (20, y_offset - 35), (25, y_offset + 18), accent_color, cv2.FILLED)
                 
-                y_offset += 55 # Décaler vers le bas pour le message suivant si plusieurs détections
+                # Petit badge titre
+                cv2.putText(frame, "NOTIFICATION / PRESENCE VALIDEE", (35, y_offset - 18), 
+                            cv2.FONT_HERSHEY_DUPLEX, 0.38, accent_color, 1, cv2.LINE_AA)
+                
+                # Message de bienvenue
+                cv2.putText(frame, greeting_text, (35, y_offset + 6), 
+                            cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                
+                y_offset += 65 # Décaler vers le bas pour le message suivant si plusieurs détections
             else:
                 # Supprimer le message expiré de notre liste active
                 del active_greetings[name]
@@ -108,20 +127,33 @@ def main():
         # 6. Affichage du tableau de bord système en bas de l'écran
         h, w, _ = frame.shape
         
-        # Bandeau noir translucide de pied de page pour un look moderne et pro
-        cv2.rectangle(frame, (0, h - 50), (w, h), (44, 62, 80), cv2.FILLED)
+        # Bandeau de fond translucide haute technologie
+        bg_bar_color = (15, 18, 24) # Bleu-gris très sombre
+        draw_translucent_rect(frame, (0, h - 50), (w, h), bg_bar_color, alpha=0.90)
         
-        # Affichage du compteur de présences
+        # Ligne de séparation supérieure style néon bleu
+        border_color = (41, 128, 185) # Bleu cobalt
+        cv2.line(frame, (0, h - 50), (w, h - 50), border_color, 1, cv2.LINE_AA)
+        
+        # Mode d'exécution (GPU vs CPU)
+        mode_text = "MODE GPU (CNN)" if face_system.use_gpu else "MODE CPU (HOG)"
+        mode_color = (46, 204, 113) if face_system.use_gpu else (149, 165, 166)
+        
+        # Affichage du compteur de présences à gauche
         total_presents = attendance_manager.get_total_presents()
-        cv2.putText(frame, f"Etudiants presents aujourd'hui : {total_presents}", (20, h - 18), 
-                    cv2.FONT_HERSHEY_DUPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, f"[+] Etudiants presents : {total_presents}", (20, h - 18), 
+                    cv2.FONT_HERSHEY_DUPLEX, 0.50, (255, 255, 255), 1, cv2.LINE_AA)
+        
+        # Affichage du mode au centre
+        cv2.putText(frame, f"System : {mode_text}", (w // 2 - 120, h - 18), 
+                    cv2.FONT_HERSHEY_DUPLEX, 0.50, mode_color, 1, cv2.LINE_AA)
         
         # Affichage des FPS à droite
-        cv2.putText(frame, f"FPS: {int(fps)}", (w - 110, h - 18), 
-                    cv2.FONT_HERSHEY_DUPLEX, 0.55, (149, 165, 166), 1, cv2.LINE_AA)
+        cv2.putText(frame, f"Vitesse : {int(fps)} FPS", (w - 180, h - 18), 
+                    cv2.FONT_HERSHEY_DUPLEX, 0.50, (41, 128, 185), 1, cv2.LINE_AA)
 
         # Afficher la fenêtre avec les interfaces graphiques enrichies
-        cv2.imshow('SmartPresence v1.0 - Suivi Inteligent des Presences', frame)
+        cv2.imshow('SmartPresence v1.1 - Suivi Intelligent des Presences', frame)
 
         # 7. Quitter la boucle si la touche 'q' est pressée
         if cv2.waitKey(1) & 0xFF == ord('q'):
